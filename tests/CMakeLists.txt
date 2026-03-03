@@ -1,0 +1,11 @@
+# Test untuk Vector3D (sudah ada)
+add_executable(test_vector3d test_vector3d.cpp)
+target_link_libraries(test_vector3d PRIVATE core_sim_lib)
+target_include_directories(test_vector3d PRIVATE ${PROJECT_SOURCE_DIR}/src)
+add_test(NAME Vector3DTest COMMAND test_vector3d)
+
+# Test untuk Missile (tambahkan ini)
+add_executable(test_missile test_missile.cpp)
+target_link_libraries(test_missile PRIVATE core_sim_lib)
+target_include_directories(test_missile PRIVATE ${PROJECT_SOURCE_DIR}/src)
+add_test(NAME MissileTest COMMAND test_missile)

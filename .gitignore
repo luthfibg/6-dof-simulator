@@ -1,0 +1,61 @@
+# Build directories
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Visual Studio / MSVC
+*.vcxproj*
+*.sln*
+*.user
+*.log
+*.tlog
+*.obj
+*.pdb
+*.idb
+*.ilk
+*.lib
+*.exp
+ipch/
+.vs/
+Debug/
+Release/
+RelWithDebInfo/
+MinSizeRel/
+
+# Ninja
+.ninja_deps
+.ninja_log
+
+# Compiled binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Python virtual environments
+.venv/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Third-party libraries
+lib/eigen/
+
+# Editor/IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# Simulation outputs
+trajectory.csv
+trajectory.json
+trajectory_*.png
+
+# Misc
+*.cache
