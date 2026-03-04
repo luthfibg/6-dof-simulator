@@ -42,44 +42,131 @@ public:
     
     // ============ ATMOSFER ============
     
-    // Temperatur sebagai fungsi ketinggian (model ISA berlapis)
+    // Temperatur sebagai fungsi ketinggian (model ISA 7-lapisan)
+    // Referensi: US Standard Atmosphere 1976
     static double getTemperature(double altitude) {
+        if (altitude < 0) altitude = 0;  // Clamp negatif
+        
         if (altitude <= TROPOPAUSE) {
-            // Troposfer: T = T0 - L * h
+            // 0-11 km: Troposfer (L = -6.5 K/km)
             return T0_SL - LAPSE_RATE * altitude;
-        } 
-        else if (altitude <= STRATOPAUSE) {
-            // Tropopause (isotermal)
-            return T0_SL - LAPSE_RATE * TROPOPAUSE;  // ~216.65K
+        }
+        else if (altitude <= 20000.0) {
+            // 11-20 km: Tropopause (isotermal)
+            return 216.65;
+        }
+        else if (altitude <= 32000.0) {
+            // 20-32 km: Stratosfer bawah (L = +1.0 K/km)
+            return 216.65 + 0.001 * (altitude - 20000.0);
+        }
+        else if (altitude <= 47000.0) {
+            // 32-47 km: Stratosfer atas (L = +2.8 K/km)
+            return 228.65 + 0.0028 * (altitude - 32000.0);
+        }
+        else if (altitude <= 51000.0) {
+            // 47-51 km: Stratopause (isotermal)
+            return 270.65;
+        }
+        else if (altitude <= 71000.0) {
+            // 51-71 km: Mesosfer (L = -2.8 K/km)
+            return 270.65 - 0.0028 * (altitude - 51000.0);
+        }
+        else if (altitude <= 86000.0) {
+            // 71-86 km: Mesosfer atas (L = -2.0 K/km)
+            return 214.65 - 0.002 * (altitude - 71000.0);
         }
         else {
-            // Stratosfer atas (sederhana, bisa diperluas)
-            return 216.65;  // Konstan untuk simulasi awal
+            // >86 km: Basis termosfer (konstan untuk simulasi)
+            return 186.65;
         }
     }
     
-    // Tekanan sebagai fungsi ketinggian
+    // Tekanan sebagai fungsi ketinggian (barometric formula berlapis)
     static double getPressure(double altitude) {
+        if (altitude < 0) altitude = 0;
+        
         if (altitude <= TROPOPAUSE) {
-            // Troposfer: P = P0 * (T/T0)^(g/(L*R))
+            // 0-11 km: Troposfer (gradient layer)
             double T = getTemperature(altitude);
             double exponent = G0 / (LAPSE_RATE * R);
             return P0_SL * std::pow(T / T0_SL, exponent);
         }
-        else {
-            // Tropopause/Stratosfer: model eksponensial
-            double T_tropo = getTemperature(TROPOPAUSE);
-            double P_tropo = getPressure(TROPOPAUSE);
-            double scaleHeight = R * T_tropo / G0;
-            return P_tropo * std::exp(-(altitude - TROPOPAUSE) / scaleHeight);
+        
+        // Hitung P di batas tropopause (11 km)
+        double T_11 = 216.65;
+        double P_11 = P0_SL * std::pow(T_11 / T0_SL, G0 / (LAPSE_RATE * R));
+        
+        if (altitude <= 20000.0) {
+            // 11-20 km: Isotermal (216.65 K)
+            double H = R * 216.65 / G0;
+            return P_11 * std::exp(-(altitude - TROPOPAUSE) / H);
         }
+        
+        // P di 20 km
+        double H_tropo = R * 216.65 / G0;
+        double P_20 = P_11 * std::exp(-(20000.0 - TROPOPAUSE) / H_tropo);
+        
+        if (altitude <= 32000.0) {
+            // 20-32 km: Gradient layer (L = +0.001 K/m)
+            double L = 0.001;
+            double T = getTemperature(altitude);
+            return P_20 * std::pow(T / 216.65, -G0 / (L * R));
+        }
+        
+        // P di 32 km
+        double P_32 = P_20 * std::pow(228.65 / 216.65, -G0 / (0.001 * R));
+        
+        if (altitude <= 47000.0) {
+            // 32-47 km: Gradient layer (L = +0.0028 K/m)
+            double L = 0.0028;
+            double T = getTemperature(altitude);
+            return P_32 * std::pow(T / 228.65, -G0 / (L * R));
+        }
+        
+        // P di 47 km
+        double P_47 = P_32 * std::pow(270.65 / 228.65, -G0 / (0.0028 * R));
+        
+        if (altitude <= 51000.0) {
+            // 47-51 km: Isotermal (270.65 K)
+            double H = R * 270.65 / G0;
+            return P_47 * std::exp(-(altitude - 47000.0) / H);
+        }
+        
+        // P di 51 km
+        double H_strato = R * 270.65 / G0;
+        double P_51 = P_47 * std::exp(-(51000.0 - 47000.0) / H_strato);
+        
+        if (altitude <= 71000.0) {
+            // 51-71 km: Gradient layer (L = -0.0028 K/m)
+            double L = -0.0028;
+            double T = getTemperature(altitude);
+            return P_51 * std::pow(T / 270.65, -G0 / (L * R));
+        }
+        
+        // P di 71 km
+        double P_71 = P_51 * std::pow(214.65 / 270.65, -G0 / (-0.0028 * R));
+        
+        if (altitude <= 86000.0) {
+            // 71-86 km: Gradient layer (L = -0.002 K/m)
+            double L = -0.002;
+            double T = getTemperature(altitude);
+            return P_71 * std::pow(T / 214.65, -G0 / (L * R));
+        }
+        
+        // >86 km: Exponential decay dari 86 km
+        double P_86 = P_71 * std::pow(186.65 / 214.65, -G0 / (-0.002 * R));
+        double H_thermo = R * 186.65 / G0;
+        return P_86 * std::exp(-(altitude - 86000.0) / H_thermo);
     }
     
     // Density sebagai fungsi ketinggian (dari persamaan gas ideal)
     static double getDensity(double altitude) {
+        if (altitude < 0) altitude = 0;
         double P = getPressure(altitude);
         double T = getTemperature(altitude);
-        return P / (R * T);
+        double rho = P / (R * T);
+        // Clamp density minimum (near-vacuum di ketinggian sangat tinggi)
+        return (rho > 1e-12) ? rho : 0.0;
     }
     
     // Density dengan model eksponensial sederhana (aproksimasi cepat)

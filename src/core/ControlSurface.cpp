@@ -29,12 +29,13 @@ Vector3D ControlSurface::computeMoment(double dynamicPressure,
     
     // Tentukan sumbu momen berdasarkan nama sirip
     // Konvensi: roll=X, pitch=Y, yaw=Z
+    // Positif defleksi → positif momen (pitch up, yaw right, roll right)
     if (name == "elevator") {
-        return Vector3D(0, -momentMagnitude, 0);   // Momen pitching (sumbu Y)
+        return Vector3D(0, momentMagnitude, 0);    // Positif elevator → pitch UP
     } else if (name == "rudder") {
-        return Vector3D(0, 0, momentMagnitude);    // Momen yaw (sumbu Z)
+        return Vector3D(0, 0, momentMagnitude);    // Positif rudder → yaw RIGHT
     } else if (name == "aileron") {
-        return Vector3D(momentMagnitude, 0, 0);    // Momen roll (sumbu X)
+        return Vector3D(momentMagnitude, 0, 0);    // Positif aileron → roll RIGHT
     }
     
     return Vector3D(0, 0, 0);

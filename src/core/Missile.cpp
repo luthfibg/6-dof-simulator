@@ -11,7 +11,7 @@ const double GRAVITY = 9.81;         // Percepatan gravitasi [m/s^2]
 const double SPEED_OF_SOUND = 340.0; // Kecepatan suara [m/s]
 
 // Batasan numerik sederhana untuk menjaga stabilitas integrasi
-const double MAX_SPEED = 1500.0;          // Batas kecepatan efektif [m/s]
+const double MAX_SPEED = 5000.0;          // Batas kecepatan efektif [m/s] (mendukung hingga ~Mach 15)
 const double MIN_SPEED_FOR_AERO = 1.0;    // Ambang gaya aero mulai bekerja [m/s]
 
 // Konstruktor
@@ -112,6 +112,35 @@ void Missile::update(double dt) {
 
     try
     {
+        // ====== THRUST: hitung DULU sebelum gaya ======
+        // Model trapezoidal realistik untuk motor roket cair:
+        //   - Ignition ramp (0.5s): 30% → 100%
+        //   - Steady-state: konstan
+        //   - Shutdown ramp (0.5s): 100% → 0%
+        {
+            double rampUp = 0.5;   // Ignition transient [s]
+            double rampDown = 0.5; // Shutdown transient [s]
+            double steadyThrust = propulsion.totalImpulse
+                / (propulsion.burnTime - 0.5 * rampUp - 0.5 * rampDown);
+            
+            if (currentTime < 0) {
+                thrust = 0.0;
+            } else if (currentTime < rampUp) {
+                // Ignition: fast ramp dari 30% ke 100%
+                double frac = currentTime / rampUp;
+                thrust = steadyThrust * (0.3 + 0.7 * frac);
+            } else if (currentTime < propulsion.burnTime - rampDown) {
+                // Steady-state
+                thrust = steadyThrust;
+            } else if (currentTime < propulsion.burnTime) {
+                // Shutdown ramp
+                double tRemaining = propulsion.burnTime - currentTime;
+                thrust = steadyThrust * (tRemaining / rampDown);
+            } else {
+                thrust = 0.0;
+            }
+        }
+        
         // Hitung gaya-gaya yang bekerja
         Vector3D totalForce = computeGravity() 
                             + computeThrust() 
@@ -139,6 +168,20 @@ void Missile::update(double dt) {
         // Hitung momen total (aerodinamika DASAR + kontribusi SIRIP KENDALI)
         Vector3D totalMoment = computeTotalMoment(q_dyn);
         
+        // Thrust Vector Control (TVC) - jet vane / gimbaled nozzle
+        // Efektif saat mesin menyala, memberikan kontrol di ketinggian tinggi
+        // di mana sirip aerodinamika sudah tidak efektif (q → 0)
+        if (thrust > 0) {
+            double tvcEfficiency = 0.03;   // 3% thrust → lateral force per radian
+            double tvcArm = referenceLength * 0.45;  // Moment arm CoG → nozzle
+            double elevDefl = getElevatorDeflection();
+            double rudDefl  = getRudderDeflection();
+            // Pitch moment dari elevator TVC
+            totalMoment += Vector3D(0, thrust * tvcEfficiency * elevDefl * tvcArm, 0);
+            // Yaw moment dari rudder TVC
+            totalMoment += Vector3D(0, 0, thrust * tvcEfficiency * rudDefl * tvcArm);
+        }
+        
         // Update kecepatan linear: F = m*a -> a = F/m
         Vector3D acceleration = totalForce / currentMass;
         velocity += acceleration * dt;
@@ -165,14 +208,7 @@ void Missile::update(double dt) {
             if (currentMass < dryMass) currentMass = dryMass;
         }
         
-        // Update thrust berdasarkan waktu
-        if (currentTime <= propulsion.burnTime) {
-            // Model thrust sederhana: parabola
-            double t = currentTime / propulsion.burnTime;
-            thrust = 4 * propulsion.thrustPeak * t * (1 - t);  // Bentuk parabola
-        } else {
-            thrust = 0.0;
-        }
+        // (thrust sudah dihitung di awal step)
     } catch (const std::exception& e) {
         std::cerr << "Exception in Missile::update at t=" << currentTime 
                   << ": " << e.what() << std::endl;
@@ -251,10 +287,17 @@ Vector3D Missile::computeAerodynamicForce() const {
     // Sideslip angle
     double beta = std::atan2(v_side, std::max(u, MIN_SPEED_FOR_AERO));
     
+    // ========== MODEL STALL: clamp AoA efektif ==========
+    // Di atas ~15°, aliran terpisah dan CL berhenti naik secara linier.
+    // Clamp mencegah gaya aero tak fisik pada insidensi tinggi.
+    constexpr double MAX_AERO_ALPHA = 0.26;  // ~15° stall limit
+    double alphaEff = std::max(-MAX_AERO_ALPHA, std::min(MAX_AERO_ALPHA, alpha));
+    double betaEff  = std::max(-MAX_AERO_ALPHA, std::min(MAX_AERO_ALPHA, beta));
+    
     // ========== GAYA AERODINAMIKA ==========
     
-    // Lift coefficient
-    double cl = aeroCoeffs.CLa * alpha;
+    // Lift coefficient (menggunakan alpha efektif)
+    double cl = aeroCoeffs.CLa * alphaEff;
     
     // Drag coefficient (termasuk induced drag: CD = CD0 + CL^2 / (pi * AR_eff))
     double cd = aeroCoeffs.Cd0 + cl * cl / (3.14159265 * 3.0);
@@ -273,8 +316,8 @@ Vector3D Missile::computeAerodynamicForce() const {
     double liftMagnitude = q * referenceArea * cl;  // cl sudah bertanda
     Vector3D lift = liftDir * liftMagnitude;
     
-    // Side force (gaya lateral dari sideslip)
-    double sideCoeff = aeroCoeffs.CLa * 0.5 * beta;
+    // Side force (gaya lateral dari sideslip, menggunakan beta efektif)
+    double sideCoeff = aeroCoeffs.CLa * 0.5 * betaEff;
     double sideForceMagnitude = q * referenceArea * sideCoeff;
     Vector3D sideForce = bodyRight * sideForceMagnitude;
     
@@ -310,8 +353,12 @@ Vector3D Missile::computeAerodynamicMoment() const {
     double w = velocity.dot(bodyUp);
     double alpha = std::atan2(w, std::max(u, MIN_SPEED_FOR_AERO));
     
-    // Momen dasar (tanpa kontrol)
-    double cm = aeroCoeffs.Cm0 + aeroCoeffs.Cma * alpha;
+    // Clamp alpha (konsisten dengan model stall di computeAerodynamicForce)
+    constexpr double MAX_AERO_ALPHA = 0.26;
+    double alphaEff = std::max(-MAX_AERO_ALPHA, std::min(MAX_AERO_ALPHA, alpha));
+    
+    // Momen dasar (tanpa kontrol) — menggunakan alpha efektif
+    double cm = aeroCoeffs.Cm0 + aeroCoeffs.Cma * alphaEff;
     double basePitchingMoment = q * referenceArea * referenceLength * cm;
     
     // Pitching moment pada sumbu Y (konvensi: roll=X, pitch=Y, yaw=Z)
@@ -386,12 +433,24 @@ void Missile::applyDerivatives(const StateDerivatives& derivs, double dt) {
     // Validasi: massa tidak boleh di bawah massa struktur
     if (currentMass < dryMass) currentMass = dryMass;
     
-    // Update thrust terpisah (berdasarkan waktu)
-    if (currentTime <= propulsion.burnTime) {
-        double t = currentTime / propulsion.burnTime;
-        thrust = 4 * propulsion.thrustPeak * t * (1 - t);
-    } else {
-        thrust = 0.0;
+    // Update thrust: model trapezoidal (konsisten dengan update())
+    {
+        double rampUp = 0.5;
+        double rampDown = 0.5;
+        double steadyThrust = propulsion.totalImpulse
+            / (propulsion.burnTime - 0.5 * rampUp - 0.5 * rampDown);
+        
+        if (currentTime < 0) {
+            thrust = 0.0;
+        } else if (currentTime < rampUp) {
+            thrust = steadyThrust * (0.3 + 0.7 * (currentTime / rampUp));
+        } else if (currentTime < propulsion.burnTime - rampDown) {
+            thrust = steadyThrust;
+        } else if (currentTime < propulsion.burnTime) {
+            thrust = steadyThrust * ((propulsion.burnTime - currentTime) / rampDown);
+        } else {
+            thrust = 0.0;
+        }
     }
 }
 

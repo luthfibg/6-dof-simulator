@@ -116,38 +116,30 @@ Time(s),X(m),Y(m),Z(m),Vx(m/s),Vy(m/s),Vz(m/s),
 Roll(rad),Pitch(rad),Yaw(rad),Mass(kg),Thrust(N),Mach,Altitude(m)
 ```
 
-### Mengatur Target & Guidance (Level 5)
+### Mengatur Target & Guidance
 
-Secara default, target statis berada di:
-
-- `X = 5000 m` (range ke depan)
-- `Y = 0 m` (di permukaan tanah)
-- `Z = 2000 m` (crossrange)
-
-Anda dapat mengubah target dan mode guidance lewat argumen command-line:
+Mode default: **Ballistic (Gravity Turn)** dengan target 200 km downrange.
 
 ```bash
-./build/apps/missile_sim.exe --target X Y Z [--guidance MODE]
+./build/apps/missile_sim.exe                                           # Default: 200 km ballistic
+./build/apps/missile_sim.exe --target 100000 0 0                       # 100 km downrange
+./build/apps/missile_sim.exe --target 300000 0 0 --guidance ballistic  # 300 km ballistic
+./build/apps/missile_sim.exe --target 8000 0 2000 --guidance pure      # Taktis: Pure Pursuit
+./build/apps/missile_sim.exe --target 6000 0 3000 --guidance pn        # Taktis: Proportional Navigation
+./build/apps/missile_sim.exe --target 200000 0 0 --launch-angle 82     # Manual launch angle override
 ```
 
-Contoh:
+`--guidance MODE`:
 
-```bash
-./build/apps/missile_sim.exe --target 8000 0 0             # Target 8 km lurus ke depan, guidance default (pure)
-./build/apps/missile_sim.exe --target 6000 0 3000 --guidance pure  # Pure pursuit ke target offset
-./build/apps/missile_sim.exe --target 6000 0 3000 --guidance pn    # Proportional navigation (PN)
-```
+| Mode | Deskripsi |
+|------|-----------|
+| `ballistic` | Gravity turn boost → free-flight ballistic coast (default MRBM) |
+| `pure` | Pure Pursuit — mengarah langsung ke posisi target |
+| `pn` | Proportional Navigation — menggunakan LOS rate |
 
-`MODE` yang tersedia:
+`--launch-angle DEG`: Override sudut peluncuran (derajat). Jika tidak diberikan, dihitung otomatis dari jarak target menggunakan model empiris.
 
-- `pure` — Pure Pursuit (mengarah langsung ke target)
-- `pn` — Proportional Navigation (menggunakan LOS rate)
-
-Konvensi koordinat mengikuti `Vector3D(x, y, z)`:
-
-- `x`: arah range (horizontal ke depan)
-- `y`: ketinggian (altitude)
-- `z`: crossrange (samping)
+Konvensi koordinat: `Vector3D(x, y, z)` — x: range, y: altitude, z: crossrange.
 
 ---
 
@@ -203,38 +195,50 @@ Anda juga dapat menjalankan executable test secara langsung:
 
 Ini **bukan** model balistik tingkat produksi; tujuan utamanya adalah edukasi dan eksperimen numerik:
 
-### Fitur Utama (Level 4–5)
+### Fitur Utama (Level 4–6: MRBM)
 
-- **Model Atmosfer Dinamis (ISA)**:
-  - Temperatur, tekanan, dan densitas berubah berdasarkan altitude
-  - Menggunakan model International Standard Atmosphere (ISA) berlapis
-  - Troposfer (0–11 km): temperatur turun linear dengan lapse rate
-  - Tropopause/Stratosfer (11–20 km): model isotermal & eksponensial
-  - Speed of sound dihitung dari temperatur lokal
+- **Spesifikasi Rudal: Rajawali-2 MRBM**:
+  - Massa peluncuran: 6.500 kg (propelan: 4.000 kg, struktur+warhead: 2.500 kg)
+  - Geometri: diameter 0.88 m, panjang 11.0 m
+  - Propulsi: motor roket cair, Isp ≈ 230 s, peak thrust 210 kN, burn time 65 s
+  - Total impulse: 9.1 MN·s
+  - Aerodinamika: Cd0 = 0.12, CLα = 1.8, Cmα = -0.3
+  - Jangkauan desain: 100 – 320 km
+
+- **Model Atmosfer 7-Lapis (ISA Extended)**:
+  - Troposfer (0–11 km): lapse rate -6.5°C/km
+  - Tropopause (11–20 km): isotermal 216.65 K
+  - Stratosfer bawah (20–32 km): +1°C/km
+  - Stratosfer atas (32–47 km): +2.8°C/km
+  - Stratopause (47–51 km): isotermal 270.65 K
+  - Mesosfer (51–86 km): -2.8°C/km
+  - Termosfer dasar (>86 km): +2°C/km
+  - Density clamp untuk near-vacuum di ketinggian ekstrem
 
 - **Gravitasi Dinamis**:
-  - Gravitasi berkurang dengan altitude: `g(h) = g₀ × (R/(R+h))²`
-  - Menggunakan inverse square law dengan radius bumi R = 6.371 km
+  - `g(h) = g₀ × (R/(R+h))²` (inverse-square law)
 
-- **Model Massa yang Akurat**:
-  - Pemisahan `fuelMass` (bahan bakar) dan `dryMass` (struktur rudal)
-  - Hanya bahan bakar yang terbakar, massa struktur tetap
-  - Menghindari bug massa → 0 yang menyebabkan percepatan tak terhingga
+- **Model Thrust Trapezoidal**:
+  - Ignisi: 30% thrust pada t=0, ramp ke 100% dalam 0.5 s
+  - Steady burn pada thrust konstan
+  - Shutdown ramp: 100% → 0% dalam 0.5 s terakhir
+  - Konsumsi bahan bakar proporsional dengan thrust sesaat
 
-- **Thrust Vectoring**:
-  - Arah thrust mengikuti orientasi rudal (Euler angles: pitch, yaw)
-  - `F_thrust = T × [cos(pitch)cos(yaw), sin(pitch), cos(pitch)sin(yaw)]`
-  - Tidak lagi fixed horizontal seperti versi sebelumnya
+- **Thrust Vector Control (TVC)**:
+  - Jet vane TVC aktif selama boost phase
+  - 3% efisiensi thrust → lateral force per radian defleksi
+  - Moment arm: 45% panjang rudal
+  - Memberikan kontrol attitude di ketinggian tinggi (rendah tekanan dinamis)
 
-- **Ground Impact Detection**:
-  - Simulasi berhenti otomatis saat rudal impact dengan tanah (Y ≤ 0)
-  - Interpolasi linear untuk menentukan titik impact yang akurat
+- **AoA Stall Protection**:
+  - Angle of attack efektif dibatasi ±15° dalam perhitungan gaya & momen aerodinamika
+  - Mencegah drag berlebihan akibat AoA besar saat gravity turn
 
-- **Fisika Dasar**:
-  - Hukum Newton untuk translasi: `F = ma`
-  - Hukum Euler untuk rotasi: `M = Iα`
-  - Gaya aerodinamika (drag & lift) dengan koefisien `Cd0`, `CLa`, `Cm0`, `Cma`
-  - Integrasi numerik Euler & Runge–Kutta orde 4 (RK4)
+- **Ballistic Guidance (Gravity Turn)**:
+  - Fase 0–3 s: tahan sudut peluncuran (stabilisasi awal)
+  - Fase boost (3 s – burnout): gravity turn (α ≈ 0, mengikuti vektor kecepatan)
+  - Fase coast/reentry: free-flight balistik
+  - Sudut peluncuran dihitung otomatis dari jarak target (model empiris kalibrasi)
 
 ### Fitur Level 5: Autopilot & Guidance
 
@@ -259,33 +263,36 @@ Ini **bukan** model balistik tingkat produksi; tujuan utamanya adalah edukasi da
     - Autopilot menghitung defleksi sirip berdasarkan error orientasi
     - `Missile::setControlDeflections()` menerapkan defleksi ke elevator/rudder/aileron
 
-### Hasil Simulasi Realistis
+### Hasil Simulasi MRBM Rajawali-2
 
-Dengan konfigurasi default (main.cpp):
-- **Initial conditions**: 500 kg (200 kg fuel), V₀ = 200 m/s horizontal + 50 m/s vertical
-- **Propulsion**: 7.9s burn time, 5000N peak thrust
-- **Hasil**:
-  - Max altitude: ~487 m
-  - Max speed: ~237 m/s (Mach 0.7)
-  - Flight time: ~20 s (hingga impact)
-  - Range: ~3.6 km
+| Target | Launch | Apogee | V_max | T_flight | Impact | Error |
+|--------|--------|--------|-------|----------|--------|-------|
+| 100 km | 74.8° | 7.4 km | Mach 5.5 | 107 s | 107 km | +7% |
+| 150 km | 77.0° | 15.3 km | Mach 5.7 | 147 s | 147 km | -2% |
+| 200 km | 79.2° | 22.0 km | Mach 5.7 | 173 s | 209 km | +5% |
+| 300 km | 83.8° | 68.1 km | Mach 5.5 | 295 s | 318 km | +6% |
+
+Catatan: sudut peluncuran dihitung otomatis. Akurasi ±7% tanpa terminal guidance.
+Gunakan `--launch-angle` untuk override manual.
 
 ### Penyederhanaan yang Masih Ada
 
-- Transformasi koordinat dari *inertial frame* ke *body frame* masih sederhana
-- Koefisien aerodinamika konstan (belum fungsi Mach number)
+- Koefisien aerodinamika konstan (belum fungsi Mach number/Reynolds)
 - Model momen inersia sederhana (belum tensor inersia penuh)
-- Belum ada sistem guidance/autopilot
+- Bumi datar (belum memperhitungkan kelengkungan bumi untuk jarak >300 km)
+- Belum ada terminal guidance (homing seeker) untuk presisi impact
+- AoA stall model: hard clamp, belum ada drag rise gradual
+- Wind/turbulence belum dimodelkan
 
 ### Pengembangan Selanjutnya
 
-Repo ini cocok sebagai dasar untuk:
-
-- Eksperimen dengan model aerodinamika non-linear (fungsi Mach, Reynolds)
-- Implementasi kontrol guidance (proportional navigation, PID)
-- Penambahan autopilot dengan fin deflection
-- Simulasi multi-stage rocket
-- Integrasi dengan real-time visualization (OpenGL/VTK)
+- Model aerodinamika non-linear (Cd = f(Mach, AoA))
+- Terminal guidance (radar/IR seeker)
+- Rotating Earth & WGS-84 ellipsoid untuk jarak >500 km
+- Multi-stage rocket separation
+- Monte Carlo dispersi & CEP analysis
+- Real-time 3D visualization (OpenGL/VTK)
+- Hardware-in-the-loop (HITL) interface
 
 ---
 

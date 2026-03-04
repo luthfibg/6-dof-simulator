@@ -381,16 +381,38 @@ void Simulation::printProgress() const {
 
 void Simulation::printSummary() const {
     std::cout << "\n\n========== SIMULATION SUMMARY ==========\n";
-    std::cout << "Total time simulated: " << currentTime << " s\n";
+    std::cout << "Total time simulated: " << std::fixed << std::setprecision(2) << currentTime << " s\n";
     std::cout << "Number of steps: " << stepsPerformed << "\n";
     std::cout << "Time step: " << timeStep << " s\n";
-    std::cout << "Max altitude: " << getMaxAltitude() << " m\n";
-    std::cout << "Max speed: " << getMaxSpeed() << " m/s (" 
-              << getMaxSpeed() * 3.6 << " km/h)\n";
-    std::cout << "Max range: " << getMaxRange() << " m\n";
+    
+    double maxAlt = getMaxAltitude();
+    double maxSpd = getMaxSpeed();
+    double maxRng = getMaxRange();
+    
+    // Tampilkan dalam unit yang sesuai (km jika besar, m jika kecil)
+    if (maxAlt > 10000.0) {
+        std::cout << "Max altitude: " << std::setprecision(2) << maxAlt / 1000.0 << " km\n";
+    } else {
+        std::cout << "Max altitude: " << std::setprecision(2) << maxAlt << " m\n";
+    }
+    
+    std::cout << "Max speed: " << std::setprecision(1) << maxSpd << " m/s ("
+              << std::setprecision(1) << maxSpd * 3.6 << " km/h, Mach "
+              << std::setprecision(2) << maxSpd / 295.0 << ")\n";
+    
+    if (maxRng > 10000.0) {
+        std::cout << "Max range: " << std::setprecision(2) << maxRng / 1000.0 << " km\n";
+    } else {
+        std::cout << "Max range: " << std::setprecision(2) << maxRng << " m\n";
+    }
     
     Vector3D impact = getImpactPoint();
-    std::cout << "Impact point: X = " << impact.getX() 
-              << " m, Z = " << impact.getZ() << " m\n";
+    if (impact.magnitude() > 10000.0) {
+        std::cout << "Impact point: X = " << std::setprecision(2) << impact.getX() / 1000.0
+                  << " km, Z = " << std::setprecision(2) << impact.getZ() / 1000.0 << " km\n";
+    } else {
+        std::cout << "Impact point: X = " << std::setprecision(1) << impact.getX() 
+                  << " m, Z = " << std::setprecision(1) << impact.getZ() << " m\n";
+    }
     std::cout << "========================================\n";
 }

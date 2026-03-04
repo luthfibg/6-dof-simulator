@@ -65,19 +65,21 @@ void testMissileUpdate() {
 void testMissilePropulsion() {
     Missile m;
     m.setMass(100.0);
+    m.setFuelMass(50.0);
     m.setPropulsion(5.0, 10000.0, 3000.0);
     
-    // Simulasi selama waktu bakar
-    for (int i = 0; i < 10; i++) {
+    // Simulasi selama waktu bakar + sedikit melewati
+    for (int i = 0; i < 12; i++) {
         m.update(0.5);
     }
     
-    // Setelah 5 detik, thrust harus 0
+    // Setelah 6 detik (> burnTime=5s), thrust harus 0
     assert(m.getCurrentThrust() == 0.0);
-    assert(m.getCurrentTime() == 5.0);
+    assert(m.getCurrentTime() == 6.0);
     
-    // Massa harus berkurang
+    // Massa harus berkurang (tapi tidak di bawah dry mass)
     assert(m.getCurrentMass() < 100.0);
+    assert(m.getCurrentMass() >= 50.0);  // Tidak boleh < dry mass
     
     std::cout << "✓ Missile propulsion test passed\n";
 }
