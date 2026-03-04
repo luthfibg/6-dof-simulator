@@ -3,6 +3,8 @@
 
 #include "Vector3D.hpp"
 #include "Environment.hpp" 
+#include "ControlSurface.hpp"
+#include "Guidance.hpp"
 #include "StateDerivatives.hpp"
 #include "MissileDynamics.hpp"
 #include <vector>
@@ -96,6 +98,30 @@ public:
     
     // Meng-update state berdasarkan derivatives
     void applyDerivatives(const StateDerivatives& derivs, double dt);
+
+    private:
+    // ============ KONTROL SURFACES ============
+    std::vector<ControlSurface> controlSurfaces;
+    
+public:
+    // ============ METHOD UNTUK KONTROL ============
+    
+    // Menambahkan sirip kendali
+    void addControlSurface(const ControlSurface& surface);
+    
+    // Mendapatkan referensi ke sirip
+    ControlSurface& getControlSurface(const std::string& name);
+    
+    // Menghitung momen total termasuk dari sirip
+    Vector3D computeTotalMoment(double dynamicPressure) const;
+    
+    // Set defleksi sirip berdasarkan perintah autopilot
+    void setControlDeflections(double elevator, double rudder, double aileron);
+    
+    // Mendapatkan defleksi saat ini
+    double getElevatorDeflection() const;
+    double getRudderDeflection() const;
+    double getAileronDeflection() const;
 };
 
 #endif // MISSILE_HPP

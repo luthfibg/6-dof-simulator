@@ -28,6 +28,9 @@ src/
     StateDerivatives.*  # Struct turunan state (dx/dt)
     NumericalIntegrator.hpp  # Integrator RK4 & Euler
     Environment.hpp     # Model atmosfer ISA & gravitasi dinamis
+    ControlSurface.*    # Representasi fisik sirip kendali (elevator, rudder, aileron)
+    Autopilot.*         # PID controller untuk attitude rudal
+    Guidance.*          # Algoritma guidance (Pure Pursuit, Proportional Navigation)
 
 lib/
   eigen/                # Eigen (header-only linear algebra)
@@ -166,7 +169,7 @@ Anda juga dapat menjalankan executable test secara langsung:
 
 Ini **bukan** model balistik tingkat produksi; tujuan utamanya adalah edukasi dan eksperimen numerik:
 
-### Fitur Utama (Level 4)
+### Fitur Utama (Level 4–5)
 
 - **Model Atmosfer Dinamis (ISA)**:
   - Temperatur, tekanan, dan densitas berubah berdasarkan altitude
@@ -198,6 +201,29 @@ Ini **bukan** model balistik tingkat produksi; tujuan utamanya adalah edukasi da
   - Hukum Euler untuk rotasi: `M = Iα`
   - Gaya aerodinamika (drag & lift) dengan koefisien `Cd0`, `CLa`, `Cm0`, `Cma`
   - Integrasi numerik Euler & Runge–Kutta orde 4 (RK4)
+
+### Fitur Level 5: Autopilot & Guidance
+
+- **ControlSurface (Sirip Kendali)**:
+  - Mewakili elevator, rudder, aileron dengan defleksi terbatas (±20°)
+  - Menghasilkan momen tambahan pada rudal berdasarkan defleksi dan dynamic pressure
+
+- **Autopilot (PID Attitude Controller)**:
+  - Kontrol PID per sumbu (roll, pitch, yaw)
+  - Menghitung defleksi elevator/rudder/aileron agar orientasi rudal mengikuti orientasi yang diinginkan
+  - Menyertakan anti-windup sederhana pada integral
+
+- **Guidance (Pemandu Target)**:
+  - `purePursuit(missilePos, missileVel)`: mengarahkan rudal langsung ke posisi target
+  - `proportionalNavigation(...)`: kerangka awal PN dengan gain navigasi `N`
+  - Menghasilkan `desiredOrientation` (roll, pitch, yaw) yang menjadi referensi autopilot
+
+- **Integrasi dengan Missile & Simulation**:
+  - `Missile` menyimpan daftar control surface dan menambahkan momen dari tiap sirip ke dinamika
+  - Di `apps/main.cpp`, setiap langkah simulasi:
+    - Guidance menghitung `desiredOrientation` menuju target
+    - Autopilot menghitung defleksi sirip berdasarkan error orientasi
+    - `Missile::setControlDeflections()` menerapkan defleksi ke elevator/rudder/aileron
 
 ### Hasil Simulasi Realistis
 

@@ -1,5 +1,8 @@
 #include "../src/core/Missile.hpp"
 #include "../src/core/Simulation.hpp"
+#include "../src/core/ControlSurface.hpp"
+#include "../src/core/Autopilot.hpp"
+#include "../src/core/Guidance.hpp"
 #include <iostream>
 #include <memory>
 #include <chrono>
@@ -34,17 +37,53 @@ int main() {
                                25000.0,      // Total impulse 25,000 N·s
                                5000.0);      // Peak thrust 5000 N
         
+        // ============ LEVEL 5: CONTROL SURFACES & GUIDANCE ============
+        
+        // Tambahkan sirip kendali (elevator, rudder, aileron)
+        myMissile.addControlSurface(ControlSurface("elevator", 0.35, 0.15, Vector3D(-1.0, 0, 0)));
+        myMissile.addControlSurface(ControlSurface("rudder", 0.35, 0.1, Vector3D(-1.0, 0, 0.2)));
+        myMissile.addControlSurface(ControlSurface("aileron", 0.35, 0.1, Vector3D(-1.0, 0.2, 0)));
+        
+        // Buat autopilot dengan PID gains
+        Autopilot autopilot;
+        autopilot.setTimeStep(0.01);
+        autopilot.setPitchGains(3.0, 0.2, 0.8);    // P, I, D untuk pitch
+        autopilot.setRollGains(2.0, 0.1, 0.5);     // P, I, D untuk roll
+        autopilot.setYawGains(2.5, 0.15, 0.6);     // P, I, D untuk yaw
+        
+        // Buat guidance system
+        Guidance guidance;
+        guidance.setTarget(Vector3D(5000, 0, 2000));  // Target: 5km range, 2km crossrange
+        
+        std::cout << "Autopilot and Guidance systems initialized\n";
+        std::cout << "Target: (5000m, 0m, 2000m)\n\n";
+        
         // Buat simulasi
         Simulation sim(0.01);  // Time step 10 ms
         
-        // Set callback untuk monitoring
-        sim.setStepCallback([](const Simulation& s, const TrajectoryData& data) {
+        // Set callback untuk monitoring dan kontrol
+        sim.setStepCallback([&autopilot, &guidance, &myMissile](const Simulation& s, const TrajectoryData& data) {
             // Tampilkan setiap 1 detik
             if (std::abs(data.time - std::round(data.time)) < 0.005) {
                 std::cout << "t = " << std::fixed << std::setprecision(2) << data.time 
                           << " s, altitude = " << std::fixed << std::setprecision(1) << data.altitude 
                           << " m, speed = " << std::fixed << std::setprecision(1) << data.velocity.magnitude() 
                           << " m/s, mass = " << std::fixed << std::setprecision(1) << data.mass << " kg\n";
+            }
+            
+            // Jalankan guidance untuk mendapatkan orientasi target
+            auto guidanceCmd = guidance.purePursuit(data.position, data.velocity);
+            
+            // Jalankan autopilot untuk menghitung defleksi sirip
+            auto deflections = autopilot.computeControlSurfaces(
+                guidanceCmd.desiredOrientation,
+                data.orientation,
+                myMissile.getAngularVelocity()
+            );
+            
+            // Terapkan defleksi ke rudal (elevator, rudder, aileron)
+            if (deflections.size() >= 3) {
+                myMissile.setControlDeflections(deflections[0], deflections[1], deflections[2]);
             }
         });
         

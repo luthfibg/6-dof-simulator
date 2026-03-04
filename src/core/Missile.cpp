@@ -1,6 +1,7 @@
 #include "Missile.hpp"
 #include "MissileDynamics.hpp"
 #include "Environment.hpp"
+#include "ControlSurface.hpp"
 #include <iostream>
 #include <cmath>
 #include <stdexcept>
@@ -237,29 +238,24 @@ Vector3D Missile::computeAerodynamicForce() const {
 }
 
 Vector3D Missile::computeAerodynamicMoment() const {
-    // Momen pitching sederhana (hanya di sumbu Z)
+    // Momen pitching dasar (tanpa kontrol)
     double v = velocity.magnitude();
-    if (v < MIN_SPEED_FOR_AERO) {  // Threshold lebih besar
+    if (v < MIN_SPEED_FOR_AERO) {
         return Vector3D(0, 0, 0);
     }
     
-    // Batasi kecepatan efektif untuk menjaga stabilitas numerik
     double vEff = std::min(v, MAX_SPEED);
-
     double altitude = position.getY();
     double rho = Environment::getDensity(altitude);
-    
     double q = 0.5 * rho * vEff * vEff;
     
-    // Hitung angle of attack
     double alpha = std::atan2(velocity.getY(), velocity.getX());
     
-    // Momen pitching: M = q * S * L * Cm
+    // Momen dasar (tanpa kontrol)
     double cm = aeroCoeffs.Cm0 + aeroCoeffs.Cma * alpha;
-    double pitchingMoment = q * referenceArea * referenceLength * cm;
+    double basePitchingMoment = q * referenceArea * referenceLength * cm;
     
-    // Momen di sumbu Z (pitching)
-    return Vector3D(0, 0, pitchingMoment);
+    return Vector3D(0, 0, basePitchingMoment);
 }
 
 // Utility methods
@@ -329,4 +325,72 @@ void Missile::applyDerivatives(const StateDerivatives& derivs, double dt) {
     } else {
         thrust = 0.0;
     }
+}
+
+// ============ LEVEL 5: IMPLEMENTASI METHOD KONTROL ===========
+
+void Missile::addControlSurface(const ControlSurface& surface) {
+    controlSurfaces.push_back(surface);
+}
+
+ControlSurface& Missile::getControlSurface(const std::string& name) {
+    for (auto& surface : controlSurfaces) {
+        if (surface.getName() == name) {
+            return surface;
+        }
+    }
+    throw std::runtime_error("Control surface not found: " + name);
+}
+
+Vector3D Missile::computeTotalMoment(double dynamicPressure) const {
+    // Mulai dengan momen aerodinamika dasar
+    Vector3D totalMoment = computeAerodynamicMoment();
+    
+    // Tambahkan kontribusi dari semua sirip kendali
+    for (const auto& surface : controlSurfaces) {
+        totalMoment = totalMoment + surface.computeMoment(
+            dynamicPressure, referenceArea, referenceLength
+        );
+    }
+    
+    return totalMoment;
+}
+
+void Missile::setControlDeflections(double elevator, double rudder, double aileron) {
+    for (auto& surface : controlSurfaces) {
+        if (surface.getName() == "elevator") {
+            surface.setDeflection(elevator);
+        } else if (surface.getName() == "rudder") {
+            surface.setDeflection(rudder);
+        } else if (surface.getName() == "aileron") {
+            surface.setDeflection(aileron);
+        }
+    }
+}
+
+double Missile::getElevatorDeflection() const {
+    for (const auto& surface : controlSurfaces) {
+        if (surface.getName() == "elevator") {
+            return surface.getDeflection();
+        }
+    }
+    return 0.0;
+}
+
+double Missile::getRudderDeflection() const {
+    for (const auto& surface : controlSurfaces) {
+        if (surface.getName() == "rudder") {
+            return surface.getDeflection();
+        }
+    }
+    return 0.0;
+}
+
+double Missile::getAileronDeflection() const {
+    for (const auto& surface : controlSurfaces) {
+        if (surface.getName() == "aileron") {
+            return surface.getDeflection();
+        }
+    }
+    return 0.0;
 }
