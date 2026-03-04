@@ -101,8 +101,9 @@ std::vector<double> Autopilot::computeControlSurfaces(
     yawError = normalizeAngle(yawError);
     
     // Dapatkan defleksi dari masing-masing kontrol
-    double elevator = getElevatorCommand(pitchError, currentAngularRate.getZ());
-    double rudder = getRudderCommand(yawError, currentAngularRate.getY());
+    // Konvensi: angularRate = (rollRate=X, pitchRate=Y, yawRate=Z)
+    double elevator = getElevatorCommand(pitchError, currentAngularRate.getY());
+    double rudder = getRudderCommand(yawError, currentAngularRate.getZ());
     double aileron = getAileronCommand(rollError, currentAngularRate.getX());
     
     return {elevator, rudder, aileron};

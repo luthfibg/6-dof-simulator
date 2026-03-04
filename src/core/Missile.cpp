@@ -129,8 +129,15 @@ void Missile::update(double dt) {
             throw std::runtime_error("Invalid total force (NaN/inf)");
         }
         
-        // Hitung momen (torsi)
-        Vector3D totalMoment = computeAerodynamicMoment();
+        // Hitung dynamic pressure untuk momen kontrol sirip
+        double v_mag = velocity.magnitude();
+        double vEff_mag = std::min(v_mag, MAX_SPEED);
+        double alt = position.getY();
+        double rho_local = Environment::getDensity(alt);
+        double q_dyn = 0.5 * rho_local * vEff_mag * vEff_mag;
+        
+        // Hitung momen total (aerodinamika DASAR + kontribusi SIRIP KENDALI)
+        Vector3D totalMoment = computeTotalMoment(q_dyn);
         
         // Update kecepatan linear: F = m*a -> a = F/m
         Vector3D acceleration = totalForce / currentMass;
@@ -197,44 +204,81 @@ Vector3D Missile::computeThrust() const {
 Vector3D Missile::computeAerodynamicForce() const {
     // Hitung kecepatan relatif terhadap udara (asumsi udara diam)
     double v = velocity.magnitude();
-    if (v < MIN_SPEED_FOR_AERO) {  // Threshold untuk menghindari masalah numerik
-        return Vector3D(0, 0, 0);  // Tidak ada gaya aerodinamika jika terlalu lambat
+    if (v < MIN_SPEED_FOR_AERO) {
+        return Vector3D(0, 0, 0);
     }
 
-    // Batasi kecepatan efektif agar dynamic pressure tidak meledak secara numerik
     double vEff = std::min(v, MAX_SPEED);
 
-    // Dapatkan density berdasarkan ketinggian aktual
     double altitude = position.getY();
     double rho = Environment::getDensity(altitude);
     double speedOfSound = Environment::getSpeedOfSound(altitude);
     
-    // Dynamic pressure: q = 0.5 * rho * v^2
     double q = 0.5 * rho * vEff * vEff;
-
-    // Hitung Mach number untuk aerodinamika (nanti untuk Level 5)
     double mach = v / speedOfSound;
-        
-    // Hitung angle of attack (sudut serang)
-    // Sederhana: asumsi angle of attack dari komponen vertikal kecepatan
-    double alpha = std::atan2(velocity.getY(), velocity.getX());
     
-    // Gaya drag (berlawanan arah kecepatan)
-    double cd = aeroCoeffs.Cd0;  // + kontribusi induced drag nanti
+    // ========== TRUE ANGLE OF ATTACK (berdasarkan orientasi body) ==========
+    // Body axes dari Euler angles (konvensi: roll=X, pitch=Y, yaw=Z)
+    double pitch = orientation.getY();
+    double yaw   = orientation.getZ();
+    
+    // Sumbu forward body (arah hidung rudal)
+    Vector3D bodyForward(
+        std::cos(pitch) * std::cos(yaw),
+        std::sin(pitch),
+        std::cos(pitch) * std::sin(yaw)
+    );
+    
+    // Sumbu "up" body (tegak lurus forward, dalam bidang pitching)
+    Vector3D bodyUp(
+        -std::sin(pitch) * std::cos(yaw),
+        std::cos(pitch),
+        -std::sin(pitch) * std::sin(yaw)
+    );
+    
+    // Sumbu "right" body (lateral)
+    Vector3D bodyRight = bodyForward.cross(bodyUp);
+    if (bodyRight.magnitude() > 0.001) bodyRight = bodyRight.normalized();
+    
+    // Proyeksikan kecepatan ke body axes
+    double u = velocity.dot(bodyForward);   // Komponen forward
+    double w = velocity.dot(bodyUp);        // Komponen "up" di body frame
+    double v_side = velocity.dot(bodyRight); // Komponen lateral di body frame
+    
+    // True AoA: sudut antara kecepatan dan body forward dalam bidang pitch
+    double alpha = std::atan2(w, std::max(u, MIN_SPEED_FOR_AERO));
+    
+    // Sideslip angle
+    double beta = std::atan2(v_side, std::max(u, MIN_SPEED_FOR_AERO));
+    
+    // ========== GAYA AERODINAMIKA ==========
+    
+    // Lift coefficient
+    double cl = aeroCoeffs.CLa * alpha;
+    
+    // Drag coefficient (termasuk induced drag: CD = CD0 + CL^2 / (pi * AR_eff))
+    double cd = aeroCoeffs.Cd0 + cl * cl / (3.14159265 * 3.0);
     double dragMagnitude = q * referenceArea * cd;
-
-    // Gaya drag - pastikan velocity tidak nol
     Vector3D drag = -velocity.normalized() * dragMagnitude;
     
-    // Gaya lift (tegak lurus kecepatan)
-    double cl = aeroCoeffs.CLa * alpha;
-    double liftMagnitude = q * referenceArea * cl;
+    // Lift: tegak lurus kecepatan, dalam bidang pitch body
+    // Arah lift = komponen bodyUp yang tegak lurus terhadap kecepatan
+    Vector3D velDir = velocity.normalized();
+    Vector3D liftDir = bodyUp - velDir * bodyUp.dot(velDir);
+    if (liftDir.magnitude() > 0.001) {
+        liftDir = liftDir.normalized();
+    } else {
+        liftDir = bodyUp;  // Fallback jika hampir sejajar
+    }
+    double liftMagnitude = q * referenceArea * cl;  // cl sudah bertanda
+    Vector3D lift = liftDir * liftMagnitude;
     
-    // Lift tegak lurus kecepatan, kita asumsikan ke arah Y global
-    // Untuk akurat, lift tegak lurus kecepatan dalam bidang simetri rudal
-    Vector3D lift(0, liftMagnitude, 0);
+    // Side force (gaya lateral dari sideslip)
+    double sideCoeff = aeroCoeffs.CLa * 0.5 * beta;
+    double sideForceMagnitude = q * referenceArea * sideCoeff;
+    Vector3D sideForce = bodyRight * sideForceMagnitude;
     
-    return drag + lift;
+    return drag + lift + sideForce;
 }
 
 Vector3D Missile::computeAerodynamicMoment() const {
@@ -249,13 +293,29 @@ Vector3D Missile::computeAerodynamicMoment() const {
     double rho = Environment::getDensity(altitude);
     double q = 0.5 * rho * vEff * vEff;
     
-    double alpha = std::atan2(velocity.getY(), velocity.getX());
+    // True AoA (konsisten dengan computeAerodynamicForce)
+    double pitch = orientation.getY();
+    double yaw   = orientation.getZ();
+    Vector3D bodyForward(
+        std::cos(pitch) * std::cos(yaw),
+        std::sin(pitch),
+        std::cos(pitch) * std::sin(yaw)
+    );
+    Vector3D bodyUp(
+        -std::sin(pitch) * std::cos(yaw),
+        std::cos(pitch),
+        -std::sin(pitch) * std::sin(yaw)
+    );
+    double u = velocity.dot(bodyForward);
+    double w = velocity.dot(bodyUp);
+    double alpha = std::atan2(w, std::max(u, MIN_SPEED_FOR_AERO));
     
     // Momen dasar (tanpa kontrol)
     double cm = aeroCoeffs.Cm0 + aeroCoeffs.Cma * alpha;
     double basePitchingMoment = q * referenceArea * referenceLength * cm;
     
-    return Vector3D(0, 0, basePitchingMoment);
+    // Pitching moment pada sumbu Y (konvensi: roll=X, pitch=Y, yaw=Z)
+    return Vector3D(0, basePitchingMoment, 0);
 }
 
 // Utility methods
@@ -296,12 +356,20 @@ MissileDynamics::ForcesAndMoments Missile::computeForcesAndMoments() const {
     Vector3D gravity = computeGravity();        // Ini masih dalam inertial frame!
     Vector3D thrustForce = computeThrust();      // Seharusnya dalam body frame
     Vector3D aeroForce = computeAerodynamicForce(); // Seharusnya dalam body frame
-    Vector3D aeroMoment = computeAerodynamicMoment(); // Dalam body frame
+    // Hitung dynamic pressure untuk momen kontrol
+    double v = velocity.magnitude();
+    double vEff = std::min(v, MAX_SPEED);
+    double alt = position.getY();
+    double rho = Environment::getDensity(alt);
+    double q = 0.5 * rho * vEff * vEff;
+    
+    // Momen total termasuk kontribusi sirip kendali
+    Vector3D totalMoment = computeTotalMoment(q);
     
     // TODO: Transformasi gravity ke body frame
     // Untuk sementara, asumsi body frame sejajar inertial frame
     fm.totalForce = gravity + thrustForce + aeroForce;
-    fm.totalMoment = aeroMoment;
+    fm.totalMoment = totalMoment;
     fm.thrustMagnitude = thrust;  // Simpan untuk mass flow
     
     return fm;

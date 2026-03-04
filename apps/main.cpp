@@ -9,7 +9,52 @@
 #include <iomanip>      // Untuk setprecision
 #include <cmath>        // Untuk std::round
 
-int main() {
+enum class GuidanceMode {
+    PurePursuit,
+    ProportionalNavigation
+};
+
+// Helper sederhana untuk membaca target dari argumen CLI
+// Format: missile_sim.exe --target X Y Z
+// Koordinat dalam meter, dengan konvensi X=range, Y=altitude, Z=crossrange.
+static Vector3D parseTargetFromArgs(int argc, char* argv[], const Vector3D& defaultTarget) {
+    for (int i = 1; i + 3 < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--target") {
+            try {
+                double x = std::stod(argv[i+1]);
+                double y = std::stod(argv[i+2]);
+                double z = std::stod(argv[i+3]);
+                return Vector3D(x, y, z);
+            } catch (...) {
+                std::cerr << "Invalid --target arguments. Using default target.\n";
+                return defaultTarget;
+            }
+        }
+    }
+    return defaultTarget;
+}
+
+static GuidanceMode parseGuidanceModeFromArgs(int argc, char* argv[], GuidanceMode defaultMode) {
+    for (int i = 1; i + 1 < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--guidance") {
+            std::string mode = argv[i+1];
+            if (mode == "pure") {
+                return GuidanceMode::PurePursuit;
+            } else if (mode == "pn") {
+                return GuidanceMode::ProportionalNavigation;
+            } else {
+                std::cerr << "Unknown guidance mode '" << mode 
+                          << "'. Use 'pure' or 'pn'. Defaulting to 'pure'.\n";
+                return defaultMode;
+            }
+        }
+    }
+    return defaultMode;
+}
+
+int main(int argc, char* argv[]) {
     std::cout << "=== Missile 6-DoF Simulation ===\n\n";
     
     try {
@@ -53,16 +98,25 @@ int main() {
         
         // Buat guidance system
         Guidance guidance;
-        guidance.setTarget(Vector3D(5000, 0, 2000));  // Target: 5km range, 2km crossrange
+        Vector3D defaultTarget(5000, 0, 2000);  // Target default: 5km range, 2km crossrange
+        Vector3D target = parseTargetFromArgs(argc, argv, defaultTarget);
+        guidance.setTarget(target);
+        GuidanceMode defaultMode = GuidanceMode::PurePursuit;
+        GuidanceMode guidanceMode = parseGuidanceModeFromArgs(argc, argv, defaultMode);
         
         std::cout << "Autopilot and Guidance systems initialized\n";
-        std::cout << "Target: (5000m, 0m, 2000m)\n\n";
+        std::cout << "Target: (" << target.getX() << "m, "
+              << target.getY() << "m, "
+              << target.getZ() << "m)\n";
+        std::cout << "Guidance mode: "
+              << (guidanceMode == GuidanceMode::PurePursuit ? "pure" : "pn")
+              << "\n\n";
         
         // Buat simulasi
         Simulation sim(0.01);  // Time step 10 ms
         
         // Set callback untuk monitoring dan kontrol
-        sim.setStepCallback([&autopilot, &guidance, &myMissile](const Simulation& s, const TrajectoryData& data) {
+        sim.setStepCallback([&autopilot, &guidance, &myMissile, guidanceMode](const Simulation& s, const TrajectoryData& data) {
             // Tampilkan setiap 1 detik
             if (std::abs(data.time - std::round(data.time)) < 0.005) {
                 std::cout << "t = " << std::fixed << std::setprecision(2) << data.time 
@@ -72,7 +126,16 @@ int main() {
             }
             
             // Jalankan guidance untuk mendapatkan orientasi target
-            auto guidanceCmd = guidance.purePursuit(data.position, data.velocity);
+            Guidance::GuidanceCommand guidanceCmd;
+            if (guidanceMode == GuidanceMode::PurePursuit) {
+                guidanceCmd = guidance.purePursuit(data.position, data.velocity);
+            } else {
+                guidanceCmd = guidance.proportionalNavigation(
+                    data.position,
+                    data.velocity,
+                    s.getTimeStep()
+                );
+            }
             
             // Jalankan autopilot untuk menghitung defleksi sirip
             auto deflections = autopilot.computeControlSurfaces(

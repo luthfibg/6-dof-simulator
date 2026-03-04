@@ -28,10 +28,11 @@ Vector3D ControlSurface::computeMoment(double dynamicPressure,
     double momentMagnitude = dynamicPressure * referenceArea * referenceLength * cmDelta * deflection;
     
     // Tentukan sumbu momen berdasarkan nama sirip
+    // Konvensi: roll=X, pitch=Y, yaw=Z
     if (name == "elevator") {
-        return Vector3D(0, 0, -momentMagnitude);  // Momen pitching (sumbu Z negatif)
+        return Vector3D(0, -momentMagnitude, 0);   // Momen pitching (sumbu Y)
     } else if (name == "rudder") {
-        return Vector3D(0, momentMagnitude, 0);    // Momen yaw (sumbu Y)
+        return Vector3D(0, 0, momentMagnitude);    // Momen yaw (sumbu Z)
     } else if (name == "aileron") {
         return Vector3D(momentMagnitude, 0, 0);    // Momen roll (sumbu X)
     }

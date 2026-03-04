@@ -103,6 +103,7 @@ Dari root proyek (bukan dari dalam `build/`):
 Program akan:
 
 - Menjalankan simulasi selama `maxTime` (default 60 s, lihat `apps/main.cpp`)
+- Menggunakan autopilot + guidance untuk mengejar target
 - Mencetak status berkala (waktu, ketinggian, kecepatan, massa, dll.)
 - Mengekspor data lintasan ke:
   - `trajectory.csv`
@@ -114,6 +115,39 @@ File CSV berisi kolom:
 Time(s),X(m),Y(m),Z(m),Vx(m/s),Vy(m/s),Vz(m/s),
 Roll(rad),Pitch(rad),Yaw(rad),Mass(kg),Thrust(N),Mach,Altitude(m)
 ```
+
+### Mengatur Target & Guidance (Level 5)
+
+Secara default, target statis berada di:
+
+- `X = 5000 m` (range ke depan)
+- `Y = 0 m` (di permukaan tanah)
+- `Z = 2000 m` (crossrange)
+
+Anda dapat mengubah target dan mode guidance lewat argumen command-line:
+
+```bash
+./build/apps/missile_sim.exe --target X Y Z [--guidance MODE]
+```
+
+Contoh:
+
+```bash
+./build/apps/missile_sim.exe --target 8000 0 0             # Target 8 km lurus ke depan, guidance default (pure)
+./build/apps/missile_sim.exe --target 6000 0 3000 --guidance pure  # Pure pursuit ke target offset
+./build/apps/missile_sim.exe --target 6000 0 3000 --guidance pn    # Proportional navigation (PN)
+```
+
+`MODE` yang tersedia:
+
+- `pure` — Pure Pursuit (mengarah langsung ke target)
+- `pn` — Proportional Navigation (menggunakan LOS rate)
+
+Konvensi koordinat mengikuti `Vector3D(x, y, z)`:
+
+- `x`: arah range (horizontal ke depan)
+- `y`: ketinggian (altitude)
+- `z`: crossrange (samping)
 
 ---
 

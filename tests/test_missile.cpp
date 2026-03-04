@@ -39,7 +39,9 @@ void testMissileGravity() {
     assert(gravity.getX() == 0.0);
     assert(gravity.getY() < 0.0);
     assert(gravity.getZ() == 0.0);
-    assert(std::abs(gravity.magnitude() - 981.0) < 1e-10);  // 100 kg * 9.81
+    // G0 = 9.80665 (bukan 9.81), jadi expectedMag = 100 * 9.80665 = 980.665
+    double expectedMag = 100.0 * 9.80665;
+    assert(std::abs(gravity.magnitude() - expectedMag) < 1e-6);
     
     std::cout << "✓ Gravity computation test passed\n";
 }
