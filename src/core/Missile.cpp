@@ -1,5 +1,6 @@
 #include "Missile.hpp"
 #include "MissileDynamics.hpp"
+#include "Environment.hpp"
 #include <iostream>
 #include <cmath>
 #include <stdexcept>
@@ -22,9 +23,11 @@ Missile::Missile(const std::string& name)
     , orientation(0, 0, 0)
     , angularVelocity(0, 0, 0)
     , mass(100.0)           // Default 100 kg
-    , currentMass(100.0)
+    , fuelMass(40.0)        // Default 40% dari massa total
+    , dryMass(60.0)         // Massa struktur
     , referenceArea(0.1)     // Default 0.1 m^2
     , referenceLength(1.0)   // Default 1 m
+    , currentMass(100.0)
     , thrust(0.0)
     , currentTime(0.0)
 {
@@ -55,7 +58,10 @@ void Missile::setInitialOrientation(const Vector3D& ori) {
 
 void Missile::setMass(double m) {
     mass = m;
-    currentMass = m;  // Reset current mass ke nilai awal
+    currentMass = m;
+    // Default: 40% bahan bakar jika belum di-set secara eksplisit
+    fuelMass = m * 0.4;
+    dryMass = m - fuelMass;
 }
 
 void Missile::setReferenceArea(double area) {
@@ -77,6 +83,14 @@ void Missile::setAerodynamicCoeffs(double cd0, double cla, double cm0, double cm
     aeroCoeffs.CLa = cla;
     aeroCoeffs.Cm0 = cm0;
     aeroCoeffs.Cma = cma;
+}
+
+void Missile::setFuelMass(double fuel) {
+    if (fuel < 0 || fuel > mass) {
+        throw std::runtime_error("Fuel mass must be between 0 and total mass");
+    }
+    fuelMass = fuel;
+    dryMass = mass - fuelMass;
 }
 
 void Missile::setPropulsion(double burnTime, double totalImpulse, double thrustPeak) {
@@ -136,12 +150,11 @@ void Missile::update(double dt) {
         // Update waktu
         currentTime += dt;
         
-        // Update massa (bahan bakar berkurang)
-        if (currentTime <= propulsion.burnTime) {
-            // Asumsi pembakaran linear
-            double massFlowRate = mass / propulsion.burnTime;
+        // Update massa (hanya bahan bakar yang berkurang, struktur tetap)
+        if (currentTime <= propulsion.burnTime && currentMass > dryMass) {
+            double massFlowRate = fuelMass / propulsion.burnTime;
             currentMass -= massFlowRate * dt;
-            if (currentMass < 0) currentMass = 0;
+            if (currentMass < dryMass) currentMass = dryMass;
         }
         
         // Update thrust berdasarkan waktu
@@ -162,23 +175,21 @@ void Missile::update(double dt) {
 
 // Perhitungan gaya-gaya
 Vector3D Missile::computeGravity() const {
-    // Gaya gravitasi ke arah -Y (sumbu Y ke atas)
-    return Vector3D(0, -currentMass * GRAVITY, 0);
+    // Gunakan model gravitasi yang bergantung ketinggian
+    double altitude = position.getY();  // Asumsi Y adalah ketinggian
+    return Environment::getGravityVector(altitude, currentMass);
 }
 
 Vector3D Missile::computeThrust() const {
-    // Gaya dorong searah orientasi rudal
-    // Buat vektor arah thrust (sumbu X lokal)
-    Vector3D thrustDir(1, 0, 0);  // Default arah
-    
-    // Rotasi thrustDir berdasarkan orientation
-    // Untuk sekarang, sederhanakan dulu:
     if (thrust > 0) {
-        // Asumsikan thrust selalu ke arah orientation
-        // Ini masih perlu diperbaiki dengan rotasi matriks nantinya
-        return Vector3D(thrust, 0, 0);  // Sederhanakan dulu
+        // Arah thrust mengikuti orientasi rudal (Euler angles)
+        double pitch = orientation.getY();  // Sudut elevasi
+        double yaw   = orientation.getZ();  // Sudut azimuth
+        double tx = thrust * std::cos(pitch) * std::cos(yaw);
+        double ty = thrust * std::sin(pitch);
+        double tz = thrust * std::cos(pitch) * std::sin(yaw);
+        return Vector3D(tx, ty, tz);
     }
-    
     return Vector3D(0, 0, 0);
 }
 
@@ -191,11 +202,18 @@ Vector3D Missile::computeAerodynamicForce() const {
 
     // Batasi kecepatan efektif agar dynamic pressure tidak meledak secara numerik
     double vEff = std::min(v, MAX_SPEED);
+
+    // Dapatkan density berdasarkan ketinggian aktual
+    double altitude = position.getY();
+    double rho = Environment::getDensity(altitude);
+    double speedOfSound = Environment::getSpeedOfSound(altitude);
     
     // Dynamic pressure: q = 0.5 * rho * v^2
-    double rho = 1.225;  // Density udara di permukaan laut [kg/m^3]
     double q = 0.5 * rho * vEff * vEff;
-    
+
+    // Hitung Mach number untuk aerodinamika (nanti untuk Level 5)
+    double mach = v / speedOfSound;
+        
     // Hitung angle of attack (sudut serang)
     // Sederhana: asumsi angle of attack dari komponen vertikal kecepatan
     double alpha = std::atan2(velocity.getY(), velocity.getX());
@@ -227,8 +245,10 @@ Vector3D Missile::computeAerodynamicMoment() const {
     
     // Batasi kecepatan efektif untuk menjaga stabilitas numerik
     double vEff = std::min(v, MAX_SPEED);
+
+    double altitude = position.getY();
+    double rho = Environment::getDensity(altitude);
     
-    double rho = 1.225;
     double q = 0.5 * rho * vEff * vEff;
     
     // Hitung angle of attack
@@ -266,7 +286,9 @@ void Missile::printStatus() const {
 }
 
 double Missile::getMachNumber() const {
-    return velocity.magnitude() / SPEED_OF_SOUND;
+    double altitude = position.getY();
+    double speedOfSound = Environment::getSpeedOfSound(altitude);
+    return velocity.magnitude() / speedOfSound;
 }
 
 // ============ METHOD BARU UNTUK LEVEL 3 ============
@@ -297,8 +319,8 @@ void Missile::applyDerivatives(const StateDerivatives& derivs, double dt) {
     angularVelocity += derivs.dAngularVelocity_dt * dt;
     currentMass += derivs.dMass_dt * dt;
     
-    // Validasi
-    if (currentMass < 0) currentMass = 0;
+    // Validasi: massa tidak boleh di bawah massa struktur
+    if (currentMass < dryMass) currentMass = dryMass;
     
     // Update thrust terpisah (berdasarkan waktu)
     if (currentTime <= propulsion.burnTime) {

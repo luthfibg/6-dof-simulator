@@ -18,7 +18,8 @@ int main() {
         myMissile.setInitialVelocity(Vector3D(200, 50, 0));    // Kecepatan awal
         myMissile.setInitialOrientation(Vector3D(0, 0.2, 0));   // Sedikit pitch up
         
-        myMissile.setMass(500.0);                               // 500 kg
+        myMissile.setMass(500.0);                               // 500 kg total
+        myMissile.setFuelMass(200.0);                           // 200 kg bahan bakar, 300 kg struktur
         myMissile.setReferenceArea(0.2);                        // 0.2 m^2
         myMissile.setReferenceLength(2.0);                      // 2 m panjang
         

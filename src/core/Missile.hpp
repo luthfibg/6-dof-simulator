@@ -2,6 +2,7 @@
 #define MISSILE_HPP
 
 #include "Vector3D.hpp"
+#include "Environment.hpp" 
 #include "StateDerivatives.hpp"
 #include "MissileDynamics.hpp"
 #include <vector>
@@ -17,6 +18,8 @@ private:
     
     // ============ PROPERTIES KONSTAN ============
     double mass;            // Massa total [kg]
+    double fuelMass;        // Massa bahan bakar [kg]
+    double dryMass;         // Massa struktur tanpa bahan bakar [kg]
     double referenceArea;   // Luas penampang referensi [m^2]
     double referenceLength; // Panjang referensi (untuk momen) [m]
     
@@ -58,6 +61,7 @@ public:
     void setReferenceArea(double area);
     void setReferenceLength(double length);
     void setAerodynamicCoeffs(double cd0, double cla, double cm0, double cma);
+    void setFuelMass(double fuel);
     void setPropulsion(double burnTime, double totalImpulse, double thrustPeak);
     
     // ============ GETTER UNTUK STATE ============

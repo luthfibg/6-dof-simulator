@@ -86,6 +86,13 @@ bool Simulation::run() {
             return false;
         }
         
+        // Cek impact dengan tanah (setelah fase awal peluncuran)
+        if (currentTime > 1.0 && missile->getPosition().getY() <= 0) {
+            std::cout << "\nMissile impacted ground at t = " 
+                      << std::fixed << std::setprecision(2) << currentTime << " s" << std::endl;
+            break;
+        }
+        
         // Progress indicator setiap 10%
         if (stepsPerformed % static_cast<int>(maxTime / timeStep / 10) == 0) {
             printProgress();
