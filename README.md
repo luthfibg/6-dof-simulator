@@ -27,6 +27,7 @@ src/
     MissileDynamics.*   # Persamaan diferensial (Hukum Newton & Euler)
     StateDerivatives.*  # Struct turunan state (dx/dt)
     NumericalIntegrator.hpp  # Integrator RK4 & Euler
+    Environment.hpp     # Model atmosfer ISA & gravitasi dinamis
 
 lib/
   eigen/                # Eigen (header-only linear algebra)
@@ -36,6 +37,8 @@ tests/
   test_missile.cpp      # Unit test dasar rudal
 
 visualize.py            # Script Python untuk plotting lintasan
+compare_models.py       # Script untuk membandingkan hasil simulasi
+Environment.py          # Modul Python untuk model atmosfer (mirror dari C++)
 ```
 
 ---
@@ -163,22 +166,66 @@ Anda juga dapat menjalankan executable test secara langsung:
 
 Ini **bukan** model balistik tingkat produksi; tujuan utamanya adalah edukasi dan eksperimen numerik:
 
-- Mengimplementasikan hukum Newton dan hukum Euler untuk translasi dan rotasi
-- Menggunakan koefisien aerodinamika sederhana (`Cd0`, `CLa`, `Cm0`, `Cma`)
-- Dinamika massa rudal (massa berkurang selama pembakaran propelan)
-- Integrasi numerik dengan metode Euler dan Runge–Kutta orde 4 (RK4) melalui `NumericalIntegrator`
+### Fitur Utama (Level 4)
 
-Beberapa penyederhanaan yang masih ada:
+- **Model Atmosfer Dinamis (ISA)**:
+  - Temperatur, tekanan, dan densitas berubah berdasarkan altitude
+  - Menggunakan model International Standard Atmosphere (ISA) berlapis
+  - Troposfer (0–11 km): temperatur turun linear dengan lapse rate
+  - Tropopause/Stratosfer (11–20 km): model isotermal & eksponensial
+  - Speed of sound dihitung dari temperatur lokal
 
-- Atmosfer dianggap konstan (ρ tetap)
-- Transformasi dari gaya di *inertial frame* ke *body frame* masih disederhanakan
-- Model thrust dan lift masih bentuk sederhana (parabola/linear)
+- **Gravitasi Dinamis**:
+  - Gravitasi berkurang dengan altitude: `g(h) = g₀ × (R/(R+h))²`
+  - Menggunakan inverse square law dengan radius bumi R = 6.371 km
+
+- **Model Massa yang Akurat**:
+  - Pemisahan `fuelMass` (bahan bakar) dan `dryMass` (struktur rudal)
+  - Hanya bahan bakar yang terbakar, massa struktur tetap
+  - Menghindari bug massa → 0 yang menyebabkan percepatan tak terhingga
+
+- **Thrust Vectoring**:
+  - Arah thrust mengikuti orientasi rudal (Euler angles: pitch, yaw)
+  - `F_thrust = T × [cos(pitch)cos(yaw), sin(pitch), cos(pitch)sin(yaw)]`
+  - Tidak lagi fixed horizontal seperti versi sebelumnya
+
+- **Ground Impact Detection**:
+  - Simulasi berhenti otomatis saat rudal impact dengan tanah (Y ≤ 0)
+  - Interpolasi linear untuk menentukan titik impact yang akurat
+
+- **Fisika Dasar**:
+  - Hukum Newton untuk translasi: `F = ma`
+  - Hukum Euler untuk rotasi: `M = Iα`
+  - Gaya aerodinamika (drag & lift) dengan koefisien `Cd0`, `CLa`, `Cm0`, `Cma`
+  - Integrasi numerik Euler & Runge–Kutta orde 4 (RK4)
+
+### Hasil Simulasi Realistis
+
+Dengan konfigurasi default (main.cpp):
+- **Initial conditions**: 500 kg (200 kg fuel), V₀ = 200 m/s horizontal + 50 m/s vertical
+- **Propulsion**: 7.9s burn time, 5000N peak thrust
+- **Hasil**:
+  - Max altitude: ~487 m
+  - Max speed: ~237 m/s (Mach 0.7)
+  - Flight time: ~20 s (hingga impact)
+  - Range: ~3.6 km
+
+### Penyederhanaan yang Masih Ada
+
+- Transformasi koordinat dari *inertial frame* ke *body frame* masih sederhana
+- Koefisien aerodinamika konstan (belum fungsi Mach number)
+- Model momen inersia sederhana (belum tensor inersia penuh)
+- Belum ada sistem guidance/autopilot
+
+### Pengembangan Selanjutnya
 
 Repo ini cocok sebagai dasar untuk:
 
-- Latihan numerik persamaan diferensial
-- Eksperimen dengan model aerodinamika yang lebih kaya
-- Penambahan kontrol guidance / autopilot di masa depan
+- Eksperimen dengan model aerodinamika non-linear (fungsi Mach, Reynolds)
+- Implementasi kontrol guidance (proportional navigation, PID)
+- Penambahan autopilot dengan fin deflection
+- Simulasi multi-stage rocket
+- Integrasi dengan real-time visualization (OpenGL/VTK)
 
 ---
 
